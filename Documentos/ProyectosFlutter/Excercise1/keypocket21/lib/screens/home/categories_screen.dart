@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../../models/category.dart';
-import '../../services/local_storage.dart';
+import '../../services/sync_service.dart';
 import 'credentials_screen.dart';
 
 class CategoriesScreen extends StatefulWidget {
@@ -15,6 +16,7 @@ class CategoriesScreen extends StatefulWidget {
 class _CategoriesScreenState extends State<CategoriesScreen> {
   final _categoryNameController = TextEditingController();
   List<Category> _categories = [];
+  bool _isLoading = true;
 
   @override
   void initState() {
@@ -24,10 +26,16 @@ class _CategoriesScreenState extends State<CategoriesScreen> {
 
   Future<void> _loadCategories() async {
     try {
-      final categories = await LocalStorage.getCategories(widget.userId);
-      setState(() => _categories = categories);
+      setState(() => _isLoading = true);
+      final syncService = Provider.of<SyncService>(context, listen: false);
+      final categories = await syncService.getCategories(widget.userId);
+      setState(() {
+        _categories = categories;
+        _isLoading = false;
+      });
     } catch (e) {
       print('Error cargando categorías: $e');
+      setState(() => _isLoading = false);
     }
   }
 
@@ -35,19 +43,33 @@ class _CategoriesScreenState extends State<CategoriesScreen> {
     if (_categoryNameController.text.isEmpty) return;
 
     final newCategory = Category(
-      id: LocalStorage.generateId(),
+      id: DateTime.now().millisecondsSinceEpoch.toString(),
       name: _categoryNameController.text,
       userId: widget.userId,
       createdAt: DateTime.now(),
     );
 
     try {
-      await LocalStorage.insertCategory(newCategory);
+      final syncService = Provider.of<SyncService>(context, listen: false);
+      await syncService.saveCategory(newCategory);
       _categoryNameController.clear();
-      await _loadCategories();
+      await _loadCategories(); // Recargar después de guardar
       Navigator.of(context).pop();
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Categoría "${newCategory.name}" guardada'),
+          backgroundColor: Colors.green,
+        ),
+      );
     } catch (e) {
       print('Error agregando categoría: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error guardando categoría'),
+          backgroundColor: Colors.red,
+        ),
+      );
     }
   }
 
@@ -71,7 +93,7 @@ class _CategoriesScreenState extends State<CategoriesScreen> {
           ),
           ElevatedButton(
             onPressed: _addCategory,
-            child: Text('Agregar'),
+            child: Text('Guardar'),
           ),
         ],
       ),
@@ -80,71 +102,125 @@ class _CategoriesScreenState extends State<CategoriesScreen> {
 
   Future<void> _deleteCategory(String id) async {
     try {
-      await LocalStorage.deleteCategory(id, widget.userId);
+      final syncService = Provider.of<SyncService>(context, listen: false);
+      await syncService.deleteCategory(id, widget.userId);
       await _loadCategories();
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Categoría eliminada'),
+          backgroundColor: Colors.green,
+        ),
+      );
     } catch (e) {
       print('Error eliminando categoría: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error eliminando categoría'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  Future<void> _syncData() async {
+    try {
+      final syncService = Provider.of<SyncService>(context, listen: false);
+      await syncService.syncAllData(widget.userId);
+      await _loadCategories(); // Recargar después de sincronizar
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Datos sincronizados con la nube'),
+          backgroundColor: Colors.blue,
+        ),
+      );
+    } catch (e) {
+      print('Error sincronizando: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error sincronizando datos'),
+          backgroundColor: Colors.red,
+        ),
+      );
     }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: _categories.isEmpty
-          ? Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.category_outlined, size: 64, color: Colors.grey),
-                  SizedBox(height: 16),
-                  Text(
-                    'No hay categorías',
-                    style: TextStyle(fontSize: 18, color: Colors.grey),
+      appBar: AppBar(
+        title: Text('Mis Categorías'),
+        actions: [
+          IconButton(
+            icon: Icon(Icons.sync),
+            onPressed: _syncData,
+            tooltip: 'Sincronizar con la nube',
+          ),
+        ],
+      ),
+      body: _isLoading
+          ? Center(child: CircularProgressIndicator())
+          : _categories.isEmpty
+              ? Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.category_outlined, size: 64, color: Colors.grey),
+                      SizedBox(height: 16),
+                      Text(
+                        'No hay categorías',
+                        style: TextStyle(fontSize: 18, color: Colors.grey),
+                      ),
+                      SizedBox(height: 8),
+                      Text(
+                        'Agrega una nueva categoría para comenzar',
+                        style: TextStyle(color: Colors.grey),
+                      ),
+                    ],
                   ),
-                  SizedBox(height: 8),
-                  Text(
-                    'Agrega una nueva categoría para comenzar',
-                    style: TextStyle(color: Colors.grey),
-                  ),
-                ],
-              ),
-            )
-          : ListView.builder(
-              itemCount: _categories.length,
-              itemBuilder: (context, index) {
-                final category = _categories[index];
-                return Card(
-                  margin: EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                  child: ListTile(
-                    leading: Icon(Icons.category, color: Colors.blue),
-                    title: Text(
-                      category.name,
-                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
-                    ),
-                    subtitle: Text(
-                      'Creada: ${_formatDate(category.createdAt)}',
-                      style: TextStyle(fontSize: 12),
-                    ),
-                    trailing: IconButton(
-                      icon: Icon(Icons.delete, color: Colors.red),
-                      onPressed: () => _showDeleteConfirmation(category),
-                    ),
-                    onTap: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (context) => CredentialsScreen(
-                            userId: widget.userId,
-                            categoryId: category.id,
-                            categoryName: category.name,
-                          ),
+                )
+              : ListView.builder(
+                  itemCount: _categories.length,
+                  itemBuilder: (context, index) {
+                    final category = _categories[index];
+                    return Card(
+                      margin: EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                      child: ListTile(
+                        leading: Icon(Icons.category, color: Colors.blue),
+                        title: Text(
+                          category.name,
+                          style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
                         ),
-                      );
-                    },
-                  ),
-                );
-              },
-            ),
+                        subtitle: Text(
+                          'Creada: ${_formatDate(category.createdAt)}',
+                          style: TextStyle(fontSize: 12),
+                        ),
+                        trailing: IconButton(
+                          icon: Icon(Icons.delete, color: Colors.red),
+                          onPressed: () => _showDeleteConfirmation(category),
+                        ),
+                        onTap: () {
+                          print('🎯 NAVEGANDO A CREDENCIALES:');
+                          print('   - userId: ${widget.userId}');
+                          print('   - categoryId: ${category.id}');
+                          print('   - categoryName: ${category.name}');
+                          
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => CredentialsScreen(
+                                userId: widget.userId,
+                                categoryId: category.id, // ¡IMPORTANTE: category.id!
+                                categoryName: category.name,
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                    );
+                  },
+                ),
       floatingActionButton: FloatingActionButton(
         onPressed: _showAddCategoryDialog,
         child: Icon(Icons.add),

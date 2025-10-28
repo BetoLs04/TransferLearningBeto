@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../../models/credential.dart';
-import '../../services/local_storage.dart';
+import '../../services/sync_service.dart';
 
 class CredentialsScreen extends StatefulWidget {
   final String userId;
@@ -21,27 +22,37 @@ class CredentialsScreen extends StatefulWidget {
 class _CredentialsScreenState extends State<CredentialsScreen> {
   List<Credential> _credentials = [];
   bool _obscurePassword = true;
+  bool _isLoading = true;
 
   @override
   void initState() {
     super.initState();
+    print('🎯 CredentialsScreen iniciado:');
+    print('   - userId: ${widget.userId}');
+    print('   - categoryId: ${widget.categoryId}');
+    print('   - categoryName: ${widget.categoryName}');
     _loadCredentials();
   }
 
   Future<void> _loadCredentials() async {
     try {
-      List<Credential> credentials;
+      setState(() => _isLoading = true);
       if (widget.categoryId != null) {
-        credentials = await LocalStorage.getCredentialsByCategory(
+        final syncService = Provider.of<SyncService>(context, listen: false);
+        final credentials = await syncService.getCredentialsByCategory(
+          widget.userId,       // ← PRIMERO: userId
           widget.categoryId!,
-          widget.userId,
         );
+        setState(() {
+          _credentials = credentials;
+          _isLoading = false;
+        });
       } else {
-        credentials = await LocalStorage.getAllCredentials(widget.userId);
+        setState(() => _isLoading = false);
       }
-      setState(() => _credentials = credentials);
     } catch (e) {
       print('Error cargando credenciales: $e');
+      setState(() => _isLoading = false);
     }
   }
 
@@ -55,7 +66,7 @@ class _CredentialsScreenState extends State<CredentialsScreen> {
       context: context,
       builder: (context) => CredentialDialog(
         userId: widget.userId,
-        categoryId: widget.categoryId!,
+        categoryId: widget.categoryId!, // ¡Pasar el categoryId correcto!
         onSaved: _loadCredentials,
       ),
     );
@@ -79,11 +90,30 @@ class _CredentialsScreenState extends State<CredentialsScreen> {
 
   Future<void> _deleteCredential(String id) async {
     try {
-      await LocalStorage.deleteCredential(id, widget.userId);
-      _loadCredentials();
+      final syncService = Provider.of<SyncService>(context, listen: false);
+      await syncService.deleteCredential(id, widget.userId);
+      await _loadCredentials();
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Credencial eliminada'),
+          backgroundColor: Colors.green,
+        ),
+      );
     } catch (e) {
       print('Error eliminando credencial: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error eliminando credencial'),
+          backgroundColor: Colors.red,
+        ),
+      );
     }
+  }
+
+  Future<void> _debugCredentials() async {
+    final syncService = Provider.of<SyncService>(context, listen: false);
+    await syncService.debugAllCredentials(widget.userId);
   }
 
   @override
@@ -91,6 +121,14 @@ class _CredentialsScreenState extends State<CredentialsScreen> {
     return Scaffold(
       appBar: AppBar(
         title: Text(widget.categoryName ?? 'Todas las Credenciales'),
+        actions: [
+          // Botón de debug temporal
+          IconButton(
+            icon: Icon(Icons.bug_report),
+            onPressed: _debugCredentials,
+            tooltip: 'Debug credenciales',
+          ),
+        ],
       ),
       body: widget.categoryId == null
           ? Center(
@@ -112,72 +150,76 @@ class _CredentialsScreenState extends State<CredentialsScreen> {
                 ],
               ),
             )
-          : _credentials.isEmpty
-              ? Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(Icons.lock_outline, size: 64, color: Colors.grey),
-                      SizedBox(height: 16),
-                      Text(
-                        'No hay credenciales',
-                        style: TextStyle(fontSize: 18, color: Colors.grey),
+          : _isLoading
+              ? Center(child: CircularProgressIndicator())
+              : _credentials.isEmpty
+                  ? Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.lock_outline, size: 64, color: Colors.grey),
+                          SizedBox(height: 16),
+                          Text(
+                            'No hay credenciales',
+                            style: TextStyle(fontSize: 18, color: Colors.grey),
+                          ),
+                          SizedBox(height: 8),
+                          Text(
+                            'Agrega tu primera credencial',
+                            style: TextStyle(color: Colors.grey),
+                          ),
+                        ],
                       ),
-                      SizedBox(height: 8),
-                      Text(
-                        'Agrega tu primera credencial',
-                        style: TextStyle(color: Colors.grey),
-                      ),
-                    ],
-                  ),
-                )
-              : ListView.builder(
-                  itemCount: _credentials.length,
-                  itemBuilder: (context, index) {
-                    final credential = _credentials[index];
-                    return Card(
-                      margin: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                      child: ListTile(
-                        leading: Icon(Icons.lock, color: Colors.green),
-                        title: Text(
-                          credential.title,
-                          style: TextStyle(fontWeight: FontWeight.bold),
-                        ),
-                        subtitle: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            SizedBox(height: 4),
-                            Text('Usuario: ${credential.username}'),
-                            Text('Email: ${credential.email}'),
-                            Text(
-                              'Contraseña: ${_obscurePassword ? '••••••••' : credential.password}',
+                    )
+                  : ListView.builder(
+                      itemCount: _credentials.length,
+                      itemBuilder: (context, index) {
+                        final credential = _credentials[index];
+                        return Card(
+                          margin: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          child: ListTile(
+                            leading: Icon(Icons.lock, color: Colors.green),
+                            title: Text(
+                              credential.title,
+                              style: TextStyle(fontWeight: FontWeight.bold),
                             ),
-                            if (credential.website != null) Text('Sitio: ${credential.website}'),
-                            if (credential.notes != null) Text('Notas: ${credential.notes}'),
-                          ],
-                        ),
-                        trailing: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            IconButton(
-                              icon: Icon(
-                                _obscurePassword ? Icons.visibility : Icons.visibility_off,
-                                color: Colors.blue,
-                              ),
-                              onPressed: () {
-                                setState(() => _obscurePassword = !_obscurePassword);
-                              },
+                            subtitle: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                SizedBox(height: 4),
+                                Text('Usuario: ${credential.username}'),
+                                Text('Email: ${credential.email}'),
+                                Text(
+                                  'Contraseña: ${_obscurePassword ? '••••••••' : credential.password}',
+                                ),
+                                if (credential.website != null) 
+                                  Text('Sitio: ${credential.website}'),
+                                if (credential.notes != null) 
+                                  Text('Notas: ${credential.notes}'),
+                              ],
                             ),
-                            IconButton(
-                              icon: Icon(Icons.delete, color: Colors.red),
-                              onPressed: () => _showDeleteConfirmation(credential),
+                            trailing: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                IconButton(
+                                  icon: Icon(
+                                    _obscurePassword ? Icons.visibility : Icons.visibility_off,
+                                    color: Colors.blue,
+                                  ),
+                                  onPressed: () {
+                                    setState(() => _obscurePassword = !_obscurePassword);
+                                  },
+                                ),
+                                IconButton(
+                                  icon: Icon(Icons.delete, color: Colors.red),
+                                  onPressed: () => _showDeleteConfirmation(credential),
+                                ),
+                              ],
                             ),
-                          ],
-                        ),
-                      ),
-                    );
-                  },
-                ),
+                          ),
+                        );
+                      },
+                    ),
       floatingActionButton: widget.categoryId != null
           ? FloatingActionButton(
               onPressed: _showAddCredentialDialog,
@@ -215,13 +257,13 @@ class _CredentialsScreenState extends State<CredentialsScreen> {
 
 class CredentialDialog extends StatefulWidget {
   final String userId;
-  final String categoryId;
+  final String categoryId; // ¡Este es el ID correcto de la categoría!
   final VoidCallback onSaved;
 
   const CredentialDialog({
     Key? key,
     required this.userId,
-    required this.categoryId,
+    required this.categoryId, // Recibimos el categoryId correcto
     required this.onSaved,
   }) : super(key: key);
 
@@ -241,25 +283,54 @@ class _CredentialDialogState extends State<CredentialDialog> {
   Future<void> _saveCredential() async {
     if (!_formKey.currentState!.validate()) return;
 
+    // ¡IMPORTANTE! Usar widget.categoryId que es el ID correcto de la categoría
     final credential = Credential(
-      id: LocalStorage.generateId(),
+      id: DateTime.now().millisecondsSinceEpoch.toString(),
       title: _titleController.text,
       username: _usernameController.text,
       email: _emailController.text,
       password: _passwordController.text,
       website: _websiteController.text.isEmpty ? null : _websiteController.text,
       notes: _notesController.text.isEmpty ? null : _notesController.text,
-      categoryId: widget.categoryId,
+      categoryId: widget.categoryId, // ← ¡ESTE ES EL ID CORRECTO!
       userId: widget.userId,
       createdAt: DateTime.now(),
     );
 
+    // LOG DE DIAGNÓSTICO
+    print('🎯 CREANDO CREDENCIAL:');
+    print('   - userId: ${credential.userId}');
+    print('   - categoryId: ${credential.categoryId}');
+    print('   - title: ${credential.title}');
+
     try {
-      await LocalStorage.insertCredential(credential);
+      final syncService = Provider.of<SyncService>(context, listen: false);
+      await syncService.saveCredential(credential);
+      
+      _titleController.clear();
+      _usernameController.clear();
+      _emailController.clear();
+      _passwordController.clear();
+      _websiteController.clear();
+      _notesController.clear();
+      
       widget.onSaved();
       Navigator.of(context).pop();
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Credencial "${credential.title}" guardada'),
+          backgroundColor: Colors.green,
+        ),
+      );
     } catch (e) {
       print('Error guardando credencial: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error guardando credencial'),
+          backgroundColor: Colors.red,
+        ),
+      );
     }
   }
 

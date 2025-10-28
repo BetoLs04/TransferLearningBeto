@@ -20,12 +20,14 @@ class Category {
     };
   }
 
-  factory Category.fromMap(Map<String, dynamic> map) {
+  factory Category.fromMap(Map<dynamic, dynamic> map) {
     return Category(
-      id: map['id'] as String,
-      name: map['name'] as String,
-      userId: map['userId'] as String,
-      createdAt: DateTime.fromMillisecondsSinceEpoch(map['createdAt'] as int),
+      id: map['id']?.toString() ?? '',
+      name: map['name']?.toString() ?? '',
+      userId: map['userId']?.toString() ?? '',
+      createdAt: DateTime.fromMillisecondsSinceEpoch(
+        (map['createdAt'] is int) ? map['createdAt'] as int : int.parse(map['createdAt'].toString()),
+      ),
     );
   }
 

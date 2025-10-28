@@ -21,27 +21,27 @@ class LocalStorage {
     }
   }
 
-  // Categories CRUD
+  // ========== OPERACIONES BÁSICAS LOCALES ==========
+
+  // Categories
   static Future<void> insertCategory(Category category) async {
     await init();
     final userCategories = await getCategories(category.userId);
     userCategories.add(category);
     await _categoriesBox.put(category.userId, _serializeCategories(userCategories));
+    print('💾 Categoría guardada localmente: ${category.name}');
   }
 
   static Future<List<Category>> getCategories(String userId) async {
     await init();
-    final List<dynamic> categoriesData = _categoriesBox.get(userId, defaultValue: []);
-    return _deserializeCategories(categoriesData);
-  }
-
-  static Future<void> updateCategory(Category category) async {
-    await init();
-    final userCategories = await getCategories(category.userId);
-    final index = userCategories.indexWhere((cat) => cat.id == category.id);
-    if (index != -1) {
-      userCategories[index] = category;
-      await _categoriesBox.put(category.userId, _serializeCategories(userCategories));
+    try {
+      final dynamic categoriesData = _categoriesBox.get(userId, defaultValue: []);
+      final categories = _deserializeCategories(categoriesData);
+      print('📊 Categorías locales para $userId: ${categories.length}');
+      return categories;
+    } catch (e) {
+      print('❌ Error obteniendo categorías locales: $e');
+      return [];
     }
   }
 
@@ -50,40 +50,35 @@ class LocalStorage {
     final userCategories = await getCategories(userId);
     userCategories.removeWhere((cat) => cat.id == categoryId);
     await _categoriesBox.put(userId, _serializeCategories(userCategories));
-    
-    final userCredentials = await getCredentialsByCategory(categoryId, userId);
-    for (final credential in userCredentials) {
-      await deleteCredential(credential.id, userId);
-    }
+    print('🗑️ Categoría eliminada localmente: $categoryId');
   }
 
-  // Credentials CRUD
+  // Credentials
   static Future<void> insertCredential(Credential credential) async {
     await init();
     final userCredentials = await getAllCredentials(credential.userId);
     userCredentials.add(credential);
     await _credentialsBox.put(credential.userId, _serializeCredentials(userCredentials));
+    print('💾 Credencial guardada localmente: ${credential.title}');
   }
 
   static Future<List<Credential>> getCredentialsByCategory(String categoryId, String userId) async {
     await init();
     final allCredentials = await getAllCredentials(userId);
-    return allCredentials.where((cred) => cred.categoryId == categoryId).toList();
+    final filtered = allCredentials.where((cred) => cred.categoryId == categoryId).toList();
+    print('🔍 Credenciales locales en categoría $categoryId: ${filtered.length}');
+    return filtered;
   }
 
   static Future<List<Credential>> getAllCredentials(String userId) async {
     await init();
-    final List<dynamic> credentialsData = _credentialsBox.get(userId, defaultValue: []);
-    return _deserializeCredentials(credentialsData);
-  }
-
-  static Future<void> updateCredential(Credential credential) async {
-    await init();
-    final userCredentials = await getAllCredentials(credential.userId);
-    final index = userCredentials.indexWhere((cred) => cred.id == credential.id);
-    if (index != -1) {
-      userCredentials[index] = credential;
-      await _credentialsBox.put(credential.userId, _serializeCredentials(userCredentials));
+    try {
+      final dynamic credentialsData = _credentialsBox.get(userId, defaultValue: []);
+      final credentials = _deserializeCredentials(credentialsData);
+      return credentials;
+    } catch (e) {
+      print('❌ Error obteniendo credenciales locales: $e');
+      return [];
     }
   }
 
@@ -92,29 +87,51 @@ class LocalStorage {
     final userCredentials = await getAllCredentials(userId);
     userCredentials.removeWhere((cred) => cred.id == credentialId);
     await _credentialsBox.put(userId, _serializeCredentials(userCredentials));
+    print('🗑️ Credencial eliminada localmente: $credentialId');
   }
 
-  static Future<void> clearUserData(String userId) async {
-    await init();
-    await _categoriesBox.delete(userId);
-    await _credentialsBox.delete(userId);
-  }
+  // ========== HELPERS ==========
 
-  // Métodos de serialización/deserialización
   static List<Map<String, dynamic>> _serializeCategories(List<Category> categories) {
     return categories.map((category) => category.toMap()).toList();
   }
 
-  static List<Category> _deserializeCategories(List<dynamic> data) {
-    return data.map((item) => Category.fromMap(item)).toList();
+  static List<Category> _deserializeCategories(dynamic data) {
+    try {
+      if (data is List) {
+        return data.map((item) {
+          if (item is Map) {
+            return Category.fromMap(item);
+          }
+          return Category.fromMap({});
+        }).toList();
+      }
+      return [];
+    } catch (e) {
+      print('❌ Error deserializando categorías: $e');
+      return [];
+    }
   }
 
   static List<Map<String, dynamic>> _serializeCredentials(List<Credential> credentials) {
     return credentials.map((credential) => credential.toMap()).toList();
   }
 
-  static List<Credential> _deserializeCredentials(List<dynamic> data) {
-    return data.map((item) => Credential.fromMap(item)).toList();
+  static List<Credential> _deserializeCredentials(dynamic data) {
+    try {
+      if (data is List) {
+        return data.map((item) {
+          if (item is Map) {
+            return Credential.fromMap(item);
+          }
+          return Credential.fromMap({});
+        }).toList();
+      }
+      return [];
+    } catch (e) {
+      print('❌ Error deserializando credenciales: $e');
+      return [];
+    }
   }
 
   // Generar IDs únicos

@@ -38,18 +38,20 @@ class Credential {
     };
   }
 
-  factory Credential.fromMap(Map<String, dynamic> map) {
+  factory Credential.fromMap(Map<dynamic, dynamic> map) {
     return Credential(
-      id: map['id'] as String,
-      title: map['title'] as String,
-      username: map['username'] as String,
-      email: map['email'] as String,
-      password: map['password'] as String,
-      website: map['website'] as String?,
-      notes: map['notes'] as String?,
-      categoryId: map['categoryId'] as String,
-      userId: map['userId'] as String,
-      createdAt: DateTime.fromMillisecondsSinceEpoch(map['createdAt'] as int),
+      id: map['id']?.toString() ?? '',
+      title: map['title']?.toString() ?? '',
+      username: map['username']?.toString() ?? '',
+      email: map['email']?.toString() ?? '',
+      password: map['password']?.toString() ?? '',
+      website: map['website']?.toString(),
+      notes: map['notes']?.toString(),
+      categoryId: map['categoryId']?.toString() ?? '',
+      userId: map['userId']?.toString() ?? '',
+      createdAt: DateTime.fromMillisecondsSinceEpoch(
+        (map['createdAt'] is int) ? map['createdAt'] as int : int.parse(map['createdAt'].toString()),
+      ),
     );
   }
 
